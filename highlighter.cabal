@@ -1,5 +1,5 @@
 name:                highlighter
-version:             0.2.2
+version:             0.2.3
 synopsis:            source code highlighting
 description:
     Processes source code using tons of lexers, tokenizing it and formatting it as e.g. HTML.
