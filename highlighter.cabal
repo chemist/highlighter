@@ -158,12 +158,12 @@ library
 
 executable highlighter
   if !flag(executable)
-    buildable: True
+    buildable: False
 
   hs-source-dirs:    src
   main-is:           Main.hs
 
-  ghc-options:      -Wall -fno-warn-unused-do-bind -O2  -fprof-auto
+  ghc-options:      -Wall -fno-warn-unused-do-bind -O2 
 
   extensions:       OverloadedStrings
 
