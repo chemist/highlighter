@@ -153,27 +153,30 @@ library
     , mtl
     , pcre-light
     , text
+    , vector
     }
 
 executable highlighter
   if !flag(executable)
-    buildable: False
+    buildable: True
 
   hs-source-dirs:    src
   main-is:           Main.hs
 
-  ghc-options:      -Wall -fno-warn-unused-do-bind
+  ghc-options:      -Wall -fno-warn-unused-do-bind -O2  -fprof-auto
 
   extensions:       OverloadedStrings
 
   build-depends:
     { base >= 4 && < 5
     , blaze-html
+    , blaze-markup
     , bytestring
     , filepath
     , mtl
     , pcre-light
     , text
+    , vector
     }
 
 

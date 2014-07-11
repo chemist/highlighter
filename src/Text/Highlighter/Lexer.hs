@@ -1,11 +1,16 @@
-module Text.Highlighter.Lexer where
+module Text.Highlighter.Lexer (runLexer) where
 
 import Control.Monad.Error
 import Control.Monad.State
-import Prelude hiding (lex)
 import Text.Regex.PCRE.Light hiding (compile)
 import Text.Regex.PCRE.Light.Char8 (compile)
 import qualified Data.ByteString as BS
+import Data.Vector hiding (modify, lex, map, mapM_, zipWithM, (++))
+import qualified Data.Vector as V
+import Data.Monoid ((<>))
+import Control.Applicative ((<$>))
+import Prelude hiding (lex, concat, head, drop, tail, reverse, dropWhile, null)
+import qualified Prelude as P
 
 import Text.Highlighter.Types
 
@@ -15,7 +20,7 @@ data LexerState =
         { lsLexer :: Lexer
         , lsInput :: BS.ByteString
         , lsState :: [TokenMatcher]
-        , lsLexed :: [Token]
+        , lsLexed :: Vector Token
         }
     deriving Show
 
@@ -31,9 +36,12 @@ instance Error LexerError where
     strMsg = OtherLexerError
 
 runLexer :: Lexer -> BS.ByteString -> Either LexerError [Token]
-runLexer l s = evalState (runErrorT lex) (LexerState l s [lStart l] [])
+runLexer l s = toList <$> runLexer' l s
 
-lex :: LexerM [Token]
+runLexer' :: Lexer -> BS.ByteString -> Either LexerError (Vector Token)
+runLexer' l s = evalState (runErrorT lex) (LexerState l s [lStart l] empty)
+
+lex :: LexerM (Vector Token)
 lex = do
     done <- gets (BS.null . lsInput)
 
@@ -43,12 +51,12 @@ lex = do
 
     ms <- getState
     ts <- tryAll ms
-    modify $ \ls -> ls { lsLexed = lsLexed ls ++ ts }
+    modify $ \ls -> ls { lsLexed = lsLexed ls <> ts }
     lex
   where
-    getState = gets (head . lsState)
+    getState = gets (P.head . lsState)
 
-tryAll :: [Match] -> LexerM [Token]
+tryAll :: [Match] -> LexerM (Vector Token)
 tryAll [] = do
     i <- gets lsInput
     throwError (NoMatchFor i)
@@ -66,7 +74,7 @@ tryAll (m:ms) = do
     case match (compile (mRegexp m) fs) i opts of
         Just [] -> do
             nextState (mNextState m) []
-            return []
+            return empty
 
         Just (s:ss) -> do
             modify $ \ls -> ls { lsInput = BS.drop (BS.length s) i }
@@ -78,14 +86,10 @@ tryAll (m:ms) = do
         Nothing ->
             tryAll ms `catchError` trySkipping
   where
-    trySkipping e = do
-        case e of
-            NoMatchFor _ ->
-                tryAllFirst (m:ms)
+    trySkipping (NoMatchFor _) = tryAllFirst (m:ms)
+    trySkipping e = throwError e
 
-            _ -> throwError e
-
-tryAllFirst :: [Match] -> LexerM [Token]
+tryAllFirst :: [Match] -> LexerM (Vector Token)
 tryAllFirst [] = do
     i <- gets lsInput
     throwError (NoMatchFor i)
@@ -105,30 +109,26 @@ tryAllFirst (m:ms) = do
             let (skipped, next) = skipFailed i s
             modify $ \ls -> ls { lsInput = next }
             ts <- toTokens (s:ss) (mType m)
-            return (Token Error skipped:ts)
+            return . singleton . Token Error $ (skipped <> (tText $ head ts))
 
         _ -> tryAllFirst ms
 
 
 isBOL :: LexerM Bool
-isBOL = do
-    ld <- gets lsLexed
-    case ld of
-        [] -> return True
-        ts ->
-            let nonempty = dropWhile (BS.null . tText) (reverse ts)
-            in
-                case nonempty of
-                    [] -> return True
-                    (t:_) -> return (BS.last (tText t) == 10)
+isBOL = find10 (\x -> (BS.last . tText $ x) == 10) <$> gets lsLexed
+{-# INLINE isBOL #-}
 
-toTokens :: [BS.ByteString] -> TokenType -> LexerM [Token]
-toTokens (s:_) (Using l) = do
-    either throwError return (runLexer l s)
+find10 :: (Token -> Bool) -> Vector Token -> Bool
+find10 p x | null x = True
+           | (BS.null . tText) (V.last x) = find10 p (V.init x)
+           | otherwise       = p (V.last x)
+
+toTokens :: [BS.ByteString] -> TokenType -> LexerM (Vector Token)
+toTokens (s:_) (Using l) = either throwError return (runLexer' l s)
 toTokens (_:ss) (ByGroups ts) =
     liftM concat $ zipWithM (\s t -> toTokens [s] t) ss ts
-toTokens (s:_) t = return [Token t s]
-toTokens [] _ = return []
+toTokens (s:_) t = return $ singleton $ Token t s
+toTokens [] _ = return empty
 
 -- Given the starting point, return the text preceding and after
 -- the failing regexp match
@@ -142,11 +142,11 @@ skipFailed i r
 nextState :: NextState -> [BS.ByteString] -> LexerM ()
 nextState Continue _ = return ()
 nextState Pop _ =
-    modify $ \ls -> ls { lsState = tail (lsState ls) }
+    modify $ \ls -> ls { lsState = P.tail (lsState ls) }
 nextState (PopNum n) _ =
-    modify $ \ls -> ls { lsState = drop n (lsState ls) }
+    modify $ \ls -> ls { lsState = P.drop n (lsState ls) }
 nextState Push _ =
-    modify $ \ls -> ls { lsState = head (lsState ls) : lsState ls }
+    modify $ \ls -> ls { lsState = P.head (lsState ls) : lsState ls }
 nextState (GoTo n) _ =
     modify $ \ls -> ls { lsState = n : lsState ls }
 nextState (CapturesTo f) cs =
@@ -155,4 +155,4 @@ nextState (CapturesTo f) cs =
     fromBS = map (toEnum . fromEnum) . BS.unpack
 nextState (DoAll nss) cs = mapM_ (flip nextState cs) nss
 nextState (Combined nss) _ =
-    modify $ \ls -> ls { lsState = concat nss : lsState ls }
+    modify $ \ls -> ls { lsState = P.concat nss : lsState ls }
