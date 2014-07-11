@@ -4,9 +4,9 @@ import Text.Highlighter
 import Text.Highlighter.Formatters.Html
 
 import System.Environment
+import Text.Blaze.Html.Renderer.String
 import Text.Blaze.Html5
 import Text.Blaze.Html5.Attributes
-import Text.Blaze.Renderer.String
 import qualified Data.ByteString as BS
 
 main :: IO ()

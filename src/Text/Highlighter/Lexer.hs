@@ -1,15 +1,15 @@
 module Text.Highlighter.Lexer (runLexer) where
 
-import Control.Monad.Error
-import Control.Monad.State
+import Control.Monad.Except (ExceptT, runExceptT, throwError, catchError)
+import Control.Monad.State (State, gets, modify, evalState)
 import Text.Regex.PCRE.Light hiding (compile)
 import Text.Regex.PCRE.Light.Char8 (compile)
 import qualified Data.ByteString as BS
-import Data.Vector hiding (modify, lex, map, mapM_, zipWithM, (++))
-import qualified Data.Vector as V
+import Data.Sequence (Seq, empty, singleton, (><), viewl, null, ViewL(..))
 import Data.Monoid ((<>))
 import Control.Applicative ((<$>))
-import Prelude hiding (lex, concat, head, drop, tail, reverse, dropWhile, null)
+import Data.Foldable (toList, foldr1, mapM_)
+import Prelude hiding (lex, foldr1, mapM_, concat, head, drop, tail, reverse, dropWhile, null)
 import qualified Prelude as P
 
 import Text.Highlighter.Types
@@ -20,28 +20,25 @@ data LexerState =
         { lsLexer :: Lexer
         , lsInput :: BS.ByteString
         , lsState :: [TokenMatcher]
-        , lsLexed :: Vector Token
+        , lsLexed :: (Seq Token)
+        , lastNotNull :: Bool
         }
     deriving Show
 
-type LexerM = ErrorT LexerError (State LexerState)
+type LexerM = ExceptT LexerError (State LexerState)
 
 data LexerError
     = NoMatchFor BS.ByteString
     | OtherLexerError String
     deriving Show
 
-instance Error LexerError where
-    noMsg = OtherLexerError "unknown"
-    strMsg = OtherLexerError
-
 runLexer :: Lexer -> BS.ByteString -> Either LexerError [Token]
-runLexer l s = toList <$> runLexer' l s
+runLexer l s =  toList <$> runLexer' l s
 
-runLexer' :: Lexer -> BS.ByteString -> Either LexerError (Vector Token)
-runLexer' l s = evalState (runErrorT lex) (LexerState l s [lStart l] empty)
+runLexer' :: Lexer -> BS.ByteString -> Either LexerError (Seq Token)
+runLexer' l s = evalState (runExceptT lex) (LexerState l s [lStart l] empty True)
 
-lex :: LexerM (Vector Token)
+lex :: LexerM (Seq Token)
 lex = do
     done <- gets (BS.null . lsInput)
 
@@ -51,12 +48,23 @@ lex = do
 
     ms <- getState
     ts <- tryAll ms
-    modify $ \ls -> ls { lsLexed = lsLexed ls <> ts }
+    if null ts || (BS.null . tText . head $ ts)
+       then modify $ \ls -> ls { lsLexed = lsLexed ls >< ts }
+       else modify $ \ls -> ls { lsLexed = lsLexed ls >< ts 
+                              , lastNotNull = (BS.last . tText . head $ ts) == 10
+                              }
     lex
   where
     getState = gets (P.head . lsState)
 
-tryAll :: [Match] -> LexerM (Vector Token)
+isBOL :: LexerM Bool
+isBOL = gets lastNotNull
+
+head :: Seq a -> a
+head x = let (b :< _) =  viewl x
+         in b
+
+tryAll :: [Match] -> LexerM (Seq Token)
 tryAll [] = do
     i <- gets lsInput
     throwError (NoMatchFor i)
@@ -89,7 +97,7 @@ tryAll (m:ms) = do
     trySkipping (NoMatchFor _) = tryAllFirst (m:ms)
     trySkipping e = throwError e
 
-tryAllFirst :: [Match] -> LexerM (Vector Token)
+tryAllFirst :: [Match] -> LexerM (Seq Token)
 tryAllFirst [] = do
     i <- gets lsInput
     throwError (NoMatchFor i)
@@ -113,20 +121,9 @@ tryAllFirst (m:ms) = do
 
         _ -> tryAllFirst ms
 
-
-isBOL :: LexerM Bool
-isBOL = find10 (\x -> (BS.last . tText $ x) == 10) <$> gets lsLexed
-{-# INLINE isBOL #-}
-
-find10 :: (Token -> Bool) -> Vector Token -> Bool
-find10 p x | null x = True
-           | (BS.null . tText) (V.last x) = find10 p (V.init x)
-           | otherwise       = p (V.last x)
-
-toTokens :: [BS.ByteString] -> TokenType -> LexerM (Vector Token)
+toTokens :: [BS.ByteString] -> TokenType -> LexerM (Seq Token)
 toTokens (s:_) (Using l) = either throwError return (runLexer' l s)
-toTokens (_:ss) (ByGroups ts) =
-    liftM concat $ zipWithM (\s t -> toTokens [s] t) ss ts
+toTokens (_:ss) (ByGroups ts) = foldr1 (><) <$> mapM (\(s,t) -> toTokens [s] t) (P.zip ss ts)
 toTokens (s:_) t = return $ singleton $ Token t s
 toTokens [] _ = return empty
 
