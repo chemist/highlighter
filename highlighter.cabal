@@ -150,7 +150,7 @@ library
     , blaze-html
     , bytestring
     , filepath
-    , mtl
+    , mtl >= 2.2.1
     , pcre-light
     , text
     , containers
