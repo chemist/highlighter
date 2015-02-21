@@ -1,4 +1,4 @@
-name:                highlighter
+name:                highlighter2
 version:             0.2.3
 synopsis:            source code highlighting
 description:
@@ -179,4 +179,7 @@ executable highlighter
     , containers
     }
 
-
+source-repository head
+  type: git
+  branch: master
+  location: https://github.com:chemist/highlighter.git
