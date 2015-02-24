@@ -182,4 +182,4 @@ executable highlighter
 source-repository head
   type: git
   branch: master
-  location: https://github.com:chemist/highlighter.git
+  location: git@github.com:chemist/highlighter.git
