@@ -1,5 +1,5 @@
 name:                highlighter2
-version:             0.2.3
+version:             0.2.4
 synopsis:            source code highlighting
 description:
     Processes source code using tons of lexers, tokenizing it and formatting it as e.g. HTML.
@@ -7,8 +7,8 @@ description:
     Very similar to the Python Pygments library; many lexers directly converted from it.
 license:             BSD3
 license-file:        LICENSE
-author:              Alex Suraci
-maintainer:          i.am@toogeneric.com
+author:              Alex Suraci, Smirnov Alexey
+maintainer:          chemistmail@gmail.com
 stability:           Experimental
 
 category:            Text
