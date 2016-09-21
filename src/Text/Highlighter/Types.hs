@@ -44,7 +44,7 @@ data Token =
         { tType :: TokenType
         , tText :: BS.ByteString
         }
-    deriving Show
+    deriving (Show, Eq)
 
 data TokenType
     = Text
@@ -158,7 +158,7 @@ data TokenType
 
     -- Use another lexer to yield some tokens
     | Using Lexer
-    deriving Show
+    deriving (Show, Eq)
 
 instance Show Lexer where
     show l = "(Lexer " ++ lName l ++ ")"
